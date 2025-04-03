@@ -72,9 +72,54 @@ def view_posts(scroll_times):
             # 在当前标签页打开帖子
             page.get(url)
             print(f"正在浏览第 {i} 篇帖子...")
-            
+    
             # 获取评论内容
             comments_data = []
+            found_end = False
+            
+            # 先获取评论容器
+            try:
+                comments_container = page.ele('xpath:/html/body/div[2]/div[1]/div[2]/div[2]/div/div[1]/div[4]/div[2]/div[3]/div', timeout=10)
+                if not comments_container:
+                    print("未找到评论容器")
+                    return all_comments
+            except Exception as e:
+                print(f"获取评论容器时出错: {e}")
+                continue
+                
+            while not found_end:
+                # 滚动到页面底部
+                try:
+                    end_element = page.ele('xpath://div[contains(@class,"end-container") and contains(text(),"THE END")]', timeout=1)
+                    if end_element:
+                        print("已到达页面底部，找到THE END标记")
+                        found_end = True
+                        break
+                except:
+                    pass
+
+                # 使用更可靠的下滑方式
+                try:
+                    # 确保评论容器可见
+                    page.scroll.to_see(comments_container)
+                    time.sleep(1)
+                    
+                    # 方法3: 使用JavaScript滚动到评论区底部
+                    page.run_js('''
+                        var commentContainer = document.querySelector(".comment-list") || 
+                                              document.querySelector(".comments-container") ||
+                                              document.evaluate('//div[contains(@class,"comment") and contains(@class,"list")]', 
+                                                               document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                        if(commentContainer) {
+                            commentContainer.scrollIntoView({behavior: "smooth", block: "end"});
+                            window.scrollBy(0, 200);
+                        }
+                    ''')
+                except Exception as e:
+                    print(f"滚动时出错: {e}")
+                # 等待评论加载
+                time.sleep(2)
+
             try:
                 # 使用XPath定位评论容器
                 comments_container = page.ele('xpath:/html/body/div[2]/div[1]/div[2]/div[2]/div/div[1]/div[4]/div[2]/div[3]/div', timeout=10)
@@ -93,19 +138,17 @@ def view_posts(scroll_times):
                         content = content_ele.text if content_ele else "无内容"
                         
                         # 检查评论内容是否包含"长沙"
-                        if "长沙" not in content:
-                            continue
+                        # if "长沙" not in content:
+                        #     continue
                         
                         # 更健壮的用户名获取方式
                         username_ele = item.ele('xpath:.//div[contains(@class,"author")]//a[contains(@class,"name")]', timeout=2)
                         username = username_ele.text if username_ele else "匿名用户"
                         
-                        print(f"获取到评论 - 用户: {username}, 内容: {content}")
                         
                         comments_data.append({
                             'username': username,
                             'content': content,
-                            'like_count': item.ele('xpath:.//div[contains(@class,"interactions")]//span[contains(@class,"count")]').text if item.ele('xpath:.//div[contains(@class,"interactions")]//span[contains(@class,"count")]', timeout=0.5) else '0',
                             'date': item.ele('xpath:.//div[contains(@class,"date")]/span').text if item.ele('xpath:.//div[contains(@class,"date")]/span', timeout=0.5) else ''
                         })
                     except Exception as e:
@@ -116,15 +159,18 @@ def view_posts(scroll_times):
                 print(f"获取评论容器时出错: {e}")
             
             # 保存评论数据
-            all_comments.append({
+            note_data = {
                 'note_url': url,
                 'comments': comments_data
-            })
+            }
             
-            # 返回搜索结果页
-            # page.back()
-            # print(f"已返回搜索结果页，等待3秒...")
-            # time.sleep(3)
+            # 立即保存到Excel
+            if comments_data:
+                save_to_excel([note_data], filename=f"comments_results_{time.strftime('%Y%m%d_%H%M%S')}.xlsx")
+                print(f"已保存第 {i} 篇笔记的 {len(comments_data)} 条评论")
+            
+            # 添加到总数据列表
+            all_comments.append(note_data)
             
         except Exception as e:
             print(f"浏览帖子时出错: {e}")
@@ -141,7 +187,6 @@ def craw(scroll_times):  # 参数改为下滑次数
         all_data.extend(comments_data)
     
     # 调试输出
-    print(f"\n最终收集的数据结构: {all_data}")
     print(f"总笔记数: {len(all_data)}")
     print(f"总评论数: {sum(len(item['comments']) for item in all_data if 'comments' in item)}")
     
@@ -171,7 +216,7 @@ if __name__ == '__main__':
     keyword = "宠物搭车"
     
     # 自定义浏览参数
-    scroll_times = 5  # 下滑次数
+    scroll_times = 3  # 下滑次数
     
     # 转为 URL 编码
     keyword_encode = quote(keyword)
@@ -183,7 +228,6 @@ if __name__ == '__main__':
     comments_data = craw(scroll_times)  # 传入下滑次数
     
     # 调试输出返回的数据
-    print(f"\n返回的comments_data数据结构: {comments_data}")
     print(f"返回数据中的笔记数: {len(comments_data) if comments_data else 0}")
     
     # 保存评论到Excel
